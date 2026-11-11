@@ -1,0 +1,5 @@
+{
+  "skillOverrides": {
+    "databricks-metric-views": "off"
+  }
+}

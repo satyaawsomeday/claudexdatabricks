@@ -1,0 +1,89 @@
+bundle:
+  name: claudexdatabricks
+
+variables:
+  catalog:
+    description: Unity Catalog catalog
+    default: claudexdatabricks
+  raw_schema:
+    description: Schema holding the raw source tables
+    default: raw
+  enr_schema:
+    description: Schema for enriched output
+    default: enr
+  cur_schema:
+    description: Schema for curated views
+    default: cur
+
+targets:
+  dev:
+    default: true
+
+resources:
+  jobs:
+    airlines_pipeline:
+      name: airlines_pipeline
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: raw_schema
+          default: ${var.raw_schema}
+        - name: enr_schema
+          default: ${var.enr_schema}
+        - name: cur_schema
+          default: ${var.cur_schema}
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: UTC
+        pause_status: PAUSED
+      tasks:
+        - task_key: ingest_raw
+          environment_key: default
+          spark_python_task:
+            python_file: ./src/ingest_raw.py
+
+        - task_key: enrich_bookings
+          depends_on:
+            - task_key: ingest_raw
+          environment_key: default
+          spark_python_task:
+            python_file: ./src/enrich_bookings.py
+            parameters:
+              - --catalog
+              - "{{job.parameters.catalog}}"
+              - --raw_schema
+              - "{{job.parameters.raw_schema}}"
+              - --enr_schema
+              - "{{job.parameters.enr_schema}}"
+
+        - task_key: check_quality
+          depends_on:
+            - task_key: enrich_bookings
+          environment_key: default
+          spark_python_task:
+            python_file: ./src/check_quality.py
+            parameters:
+              - --catalog
+              - "{{job.parameters.catalog}}"
+              - --raw_schema
+              - "{{job.parameters.raw_schema}}"
+              - --enr_schema
+              - "{{job.parameters.enr_schema}}"
+
+        - task_key: build_gold
+          depends_on:
+            - task_key: check_quality
+          environment_key: default
+          spark_python_task:
+            python_file: ./src/build_gold.py
+            parameters:
+              - --catalog
+              - "{{job.parameters.catalog}}"
+              - --enr_schema
+              - "{{job.parameters.enr_schema}}"
+              - --cur_schema
+              - "{{job.parameters.cur_schema}}"
